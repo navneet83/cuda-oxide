@@ -2,7 +2,7 @@
 name = "fp16_gemm_256x352_cute"
 version = "0.1.0"
 edition = "2024"
-license = "LicenseRef-NvidiaProprietary"
+license = "Apache-2.0"
 description = "SM100 two-CTA persistent FP16 GEMM with a 256x352 output tile"
 
 [workspace]

@@ -1,12 +1,7 @@
-// {$nv-internal-release file}
-// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-//
-// Rust port of NVIDIA DKG fp16_gemm_3_256x352.py (revision b3f067d4).
-// NVIDIA CORPORATION, its
-// affiliates and licensors retain all intellectual property and proprietary
-// rights in and to this material and modifications thereto. Use, reproduction,
-// disclosure or distribution requires an express NVIDIA license agreement.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 //! SM100 CuTe GEMM, emitted through the CUTLASS MLIR translation backend.
 //! The two CTAs collectively compute 256x352, split into 256x192 and 256x160
