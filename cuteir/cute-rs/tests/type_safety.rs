@@ -15,4 +15,7 @@ fn tensor_and_block_scaled_types_fail_closed() {
     tests.compile_fail("tests/compile_fail/tiled_copy_role_mismatch.rs");
     tests.compile_fail("tests/compile_fail/tiled_copy_encoding_mismatch.rs");
     tests.compile_fail("tests/compile_fail/tma_store_layout_mismatch.rs");
+    tests.compile_fail("tests/compile_fail/sm100_operand_role_mismatch.rs");
+    tests.compile_fail("tests/compile_fail/sm100_tma_layout_mismatch.rs");
+    tests.compile_fail("tests/compile_fail/sm100_mma_shape_mismatch.rs");
 }

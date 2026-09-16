@@ -10,11 +10,11 @@
 //! field order. Operations then use LLVM's aggregate and memory operations.
 
 use dialect_mir::{
-    attributes::FieldIndexAttr,
+    attributes::{CompilerResultBundleAttr, FieldIndexAttr},
     ops::{
-        MirAllocaOp, MirArrayElementAddrOp, MirAssertOp, MirCallOp, MirConstructStructOp,
-        MirExtractArrayElementOp, MirExtractFieldOp, MirFieldAddrOp, MirLoadOp, MirPtrOffsetOp,
-        MirStorageDeadOp, MirStorageLiveOp, MirStoreOp,
+        MirAllocaOp, MirArrayElementAddrOp, MirAssertOp, MirCallOp, MirConstructArrayOp,
+        MirConstructStructOp, MirExtractArrayElementOp, MirExtractFieldOp, MirFieldAddrOp,
+        MirLoadOp, MirPtrOffsetOp, MirStorageDeadOp, MirStorageLiveOp, MirStoreOp,
     },
     types::{
         MirArrayType, MirDisjointSliceType, MirFP16Type, MirPtrType, MirSliceType, MirStructType,
@@ -24,6 +24,7 @@ use dialect_mir::{
 use llvm_export::ops::LocalMemoryProvenanceAttr;
 use pliron::{
     builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, UnitType},
+    common_traits::Verify,
     context::{Context, Ptr},
     operation::Operation,
     r#type::{TypeHandle, Typed},
@@ -46,6 +47,9 @@ pub(crate) fn register_mir_memory_pack(
 
     registry.register_attribute::<FieldIndexAttr>(DropAttribute)?;
     registry.register_attribute::<LocalMemoryProvenanceAttr>(DropAttribute)?;
+    // This marks an importer-created ABI aggregate for optional forwarding.
+    // If it survives preparation, preserve the aggregate normally.
+    registry.register_attribute::<CompilerResultBundleAttr>(DropAttribute)?;
 
     registry.register_operation::<MirAllocaOp>(AllocaTranslation)?;
     registry.register_operation::<MirLoadOp>(LoadTranslation)?;
@@ -53,6 +57,7 @@ pub(crate) fn register_mir_memory_pack(
     registry.register_operation::<MirPtrOffsetOp>(PointerOffsetTranslation)?;
     registry.register_operation::<MirExtractFieldOp>(ExtractFieldTranslation)?;
     registry.register_operation::<MirConstructStructOp>(ConstructStructTranslation)?;
+    registry.register_operation::<MirConstructArrayOp>(ConstructArrayTranslation)?;
     registry.register_operation::<MirFieldAddrOp>(FieldAddressTranslation)?;
     registry.register_operation::<MirArrayElementAddrOp>(ArrayElementAddressTranslation)?;
     registry.register_operation::<MirExtractArrayElementOp>(ExtractArrayElementTranslation)?;
@@ -365,6 +370,63 @@ impl OperationTranslation for ExtractFieldTranslation {
 }
 
 struct ConstructStructTranslation;
+
+struct ConstructArrayTranslation;
+
+impl OperationTranslation for ConstructArrayTranslation {
+    fn translate(
+        &self,
+        ctx: &Context,
+        source: Ptr<Operation>,
+        input: OperationInput,
+        session: &mut TranslationSession<'_>,
+    ) -> Result<Vec<MlirOperation>, String> {
+        MirConstructArrayOp::new(source)
+            .verify(ctx)
+            .map_err(|e| e.to_string())?;
+        ensure_empty_attributes("mir.construct_array", &input)?;
+        let result = only_result("mir.construct_array", &input)?;
+        let mut poison = MlirOperation::new("llvm.mlir.poison")?;
+        let mut current = MlirValueUse {
+            id: if input.operands.is_empty() {
+                result.id
+            } else {
+                session.fresh_value()
+            },
+            ty: result.ty.clone(),
+        };
+        poison.results.push(MlirResult {
+            id: current.id,
+            ty: current.ty.clone(),
+        });
+        poison.location = input.location.clone();
+        let mut operations = vec![poison];
+        for (index, operand) in input.operands.iter().enumerate() {
+            let id = if index + 1 == input.operands.len() {
+                result.id
+            } else {
+                session.fresh_value()
+            };
+            let mut insert = MlirOperation::new("llvm.insertvalue")?;
+            insert.operands = vec![current, operand.clone()];
+            insert.results.push(MlirResult {
+                id,
+                ty: result.ty.clone(),
+            });
+            insert.properties.insert(
+                "position".into(),
+                MlirAttribute::DenseI64Array(vec![index as i64]),
+            );
+            insert.location = input.location.clone();
+            operations.push(insert);
+            current = MlirValueUse {
+                id,
+                ty: result.ty.clone(),
+            };
+        }
+        Ok(operations)
+    }
+}
 
 impl OperationTranslation for ConstructStructTranslation {
     fn translate(
@@ -1139,10 +1201,11 @@ mod tests {
         profile::render_mapping_module_without_cutlass_envelope,
     };
     use dialect_mir::{
-        attributes::FieldIndexAttr,
+        attributes::{CompilerResultBundleAttr, FieldIndexAttr},
         ops::{
-            MirAddOp, MirAllocaOp, MirArrayElementAddrOp, MirExtractArrayElementOp,
-            MirExtractFieldOp, MirFieldAddrOp, MirFuncOp, MirLoadOp, MirReturnOp, MirStoreOp,
+            MirAddOp, MirAllocaOp, MirArrayElementAddrOp, MirConstructArrayOp,
+            MirExtractArrayElementOp, MirExtractFieldOp, MirFieldAddrOp, MirFuncOp, MirLoadOp,
+            MirReturnOp, MirStoreOp,
         },
         types::{MirArrayType, MirPtrType, MirStructType},
     };
@@ -1176,6 +1239,58 @@ mod tests {
 
     fn integer(ctx: &mut Context, width: u32) -> TypedHandle<IntegerType> {
         IntegerType::get(ctx, width, Signedness::Unsigned)
+    }
+
+    #[test]
+    fn compiler_result_array_preserves_lane_order_and_empty_arrays() {
+        for count in [0, 4, 32] {
+            let mut ctx = Context::new();
+            dialect_mir::register(&mut ctx);
+            let module = ModuleOp::new(&mut ctx, Identifier::try_from("registers").unwrap());
+            let word = integer(&mut ctx, 32);
+            let array = MirArrayType::get(&mut ctx, word.into(), count);
+            let args = vec![word.into(); count as usize];
+            let ty = FunctionType::get(&mut ctx, args.clone(), vec![array.into()]);
+            let function_op = Operation::new(
+                &mut ctx,
+                MirFuncOp::get_concrete_op_info(),
+                vec![],
+                vec![],
+                vec![],
+                1,
+            );
+            let function = MirFuncOp::new(&mut ctx, function_op, TypeAttr::new(ty.into()));
+            function.set_symbol_name(&mut ctx, Identifier::try_from("bundle").unwrap());
+            module.append_operation(&mut ctx, function_op, 0);
+            let block = BasicBlock::new(&mut ctx, None, args);
+            block.insert_at_back(function_op.deref(&ctx).get_region(0), &ctx);
+            let values = (0..count as usize)
+                .map(|i| block.deref(&ctx).get_argument(i))
+                .collect();
+            let bundle =
+                operation::<MirConstructArrayOp>(&mut ctx, block, vec![array.into()], values);
+            bundle.deref_mut(&ctx).attributes.set(
+                Identifier::try_from("compiler_result_bundle").unwrap(),
+                CompilerResultBundleAttr(true),
+            );
+            let value = bundle.deref(&ctx).get_result(0);
+            operation::<MirReturnOp>(&mut ctx, block, vec![], vec![value]);
+            let profile = CutlassFullCuteMlir22::new("sm_100a").unwrap();
+            let target = profile.translate_module(&ctx, &module).unwrap();
+            let text = render_mapping_module_without_cutlass_envelope(&target, "registers");
+            assert_eq!(
+                text.matches("\"llvm.insertvalue\"").count(),
+                count as usize,
+                "{text}"
+            );
+            for i in 0..count {
+                let position = format!("position = array<i64: {i}>");
+                let insert = text.lines().find(|line| line.contains(&position)).unwrap();
+                assert!(insert.contains(&format!(", %v{i})")), "{text}");
+            }
+            assert!(!text.contains("compiler_result_bundle"), "{text}");
+            assert!(!text.contains("llvm.alloca"), "{text}");
+        }
     }
 
     #[test]

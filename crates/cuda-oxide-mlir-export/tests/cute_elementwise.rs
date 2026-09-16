@@ -294,7 +294,14 @@ fn production_kernel_gets_one_device_module_and_the_six_argument_launch_abi() {
             Identifier::try_from("gpu_kernel").unwrap(),
             StringAttr::new("true".into()),
         );
-        for (name, value) in [("reqntid_x", 256), ("reqntid_y", 1), ("reqntid_z", 1)] {
+        for (name, value) in [
+            ("reqntid_x", 256),
+            ("reqntid_y", 1),
+            ("reqntid_z", 1),
+            ("cluster_dim_x", 2),
+            ("cluster_dim_y", 1),
+            ("cluster_dim_z", 1),
+        ] {
             operation.attributes.set(
                 Identifier::try_from(name).unwrap(),
                 IntegerAttr::new(u32_type, APInt::from_u32(value, width)),
@@ -436,4 +443,9 @@ fn production_kernel_gets_one_device_module_and_the_six_argument_launch_abi() {
         text.contains("nvvm.reqntid = array<i32: 256, 1, 1>"),
         "{text}"
     );
+    assert!(
+        text.contains("nvvm.cluster_dim = array<i32: 2, 1, 1>"),
+        "{text}"
+    );
+    assert!(!text.contains("cluster_dim_x"), "{text}");
 }

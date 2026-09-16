@@ -205,6 +205,7 @@ fn all_high_level_semantic_ids() -> Vec<OpId> {
     ids.extend(tma_semantic_ids());
     ids.extend(smem_mma_semantic_ids());
     ids.extend(epilogue_semantic_ids());
+    ids.extend(crate::sm100_ops::semantic_ids());
     ids
 }
 
@@ -216,7 +217,9 @@ fn verify_local_op(ctx: &Context, operation: Ptr<Operation>) -> Result {
         };
     }
 
-    let result = if opid == CuteTensorMakeOp::get_opid_static() {
+    let result = if let Some(result) = crate::sm100_ops::verify_local(ctx, operation) {
+        Some(result)
+    } else if opid == CuteTensorMakeOp::get_opid_static() {
         Some(verify_as!(CuteTensorMakeOp))
     } else if opid == CuteTensorZippedDivideOp::get_opid_static() {
         Some(verify_as!(CuteTensorZippedDivideOp))
@@ -3834,6 +3837,7 @@ pub fn verify_cute_semantics(ctx: &Context, module: Ptr<Operation>) -> Result {
         verify_gemv_story(ctx, &scope)?;
         verify_tensor_story(ctx, &scope)?;
         verify_epilogue_story(ctx, &scope)?;
+        crate::sm100_ops::verify_story(ctx, &scope).map_err(invalid)?;
     }
     Ok(())
 }

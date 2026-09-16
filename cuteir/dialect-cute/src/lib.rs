@@ -16,8 +16,9 @@
 //!
 //! The implemented surface is deliberately narrow: elementwise tensor tiles,
 //! one block-scaled GEMV fragment flow, raw-carrier TMA views for the four GEMM
-//! stage copies, and the shared-tensor/tiled-MMA compute story. These semantic
-//! operations are later consumed by the selected backend continuation.
+//! stage copies, shared-tensor/tiled-MMA compute, and SM100 two-CTA tensor
+//! memory with collector-aware MMA, cluster TMA, and asynchronous pipelines.
+//! These semantic operations are consumed by the selected backend continuation.
 
 pub mod attributes;
 pub mod epilogue_ops;
@@ -26,6 +27,7 @@ pub mod gemv_ops;
 pub mod ops;
 pub mod pipeline_ops;
 pub mod scheduler_ops;
+pub mod sm100_ops;
 pub mod smem_mma_ops;
 pub mod tensor_ops;
 pub mod types;
@@ -49,6 +51,8 @@ pub fn register(ctx: &mut Context) {
         ctx,
         &DialectName::try_new(CUTE_DIALECT_NAME).expect("valid dialect name"),
     );
+
+    sm100_ops::register(ctx);
 
     // The #[pliron_op]/#[pliron_attr] macros auto-register via Context::default;
     // explicit registration is the idempotent house convention.

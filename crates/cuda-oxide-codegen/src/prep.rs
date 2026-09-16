@@ -26,6 +26,7 @@ use dialect_cute::scheduler_ops::{
     CuteSchedulerAdvanceOp, CuteSchedulerCurrentOp, CuteSchedulerHasWorkOp, CuteSchedulerNew1dOp,
     CuteWorkTileCoordinatesOp,
 };
+use dialect_cute::sm100_ops::*;
 use dialect_cute::smem_mma_ops::{
     CuteFragmentFillOp, CuteFragmentSliceKOp, CuteMmaLoadAOp, CuteMmaLoadScalesOp,
     CuteMmaPartitionBOp, CuteSmemTensorOverlayOp, CuteTiledGemmOp, CuteTiledMmaSliceOp,
@@ -290,6 +291,25 @@ fn has_high_level_cute_operations(ctx: &Context, root: Ptr<Operation>) -> bool {
             || Operation::is_op::<CuteTmaStoreCommitOp>(operation, ctx)
             || Operation::is_op::<CuteTmaStoreTailOp>(operation, ctx)
             || Operation::is_op::<CuteTmaStore2dSemanticOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100TmemAllocOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100TmaStoreOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100StoreCommitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100StoreAcquireOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100StoreTailOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100TmemDeallocOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100TiledMmaOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100TmemEpilogueOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100ClusterTmaLoadOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100PipelineInitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100PipelineAcquireOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100PipelineExpectOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100PipelineWaitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100PipelineReleaseOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100AccumulatorInitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100AccumulatorAcquireOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100AccumulatorCommitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100AccumulatorWaitOp>(operation, ctx)
+            || Operation::is_op::<CuteSm100AccumulatorReleaseOp>(operation, ctx)
         {
             return true;
         }
@@ -760,6 +780,30 @@ mod tests {
             .insert_at_back(block, &ctx);
 
         assert!(has_high_level_cute_operations(&ctx, module_operation));
+    }
+
+    #[test]
+    fn sm100_operations_enable_the_cute_preparation_gate() {
+        assert_high_level_cute_op_is_detected::<CuteSm100TmaStoreOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100StoreCommitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100StoreAcquireOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100StoreTailOp>();
+
+        assert_high_level_cute_op_is_detected::<CuteSm100TmemAllocOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100TmemDeallocOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100TiledMmaOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100TmemEpilogueOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100ClusterTmaLoadOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100PipelineInitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100PipelineAcquireOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100PipelineExpectOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100PipelineWaitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100PipelineReleaseOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100AccumulatorInitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100AccumulatorAcquireOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100AccumulatorCommitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100AccumulatorWaitOp>();
+        assert_high_level_cute_op_is_detected::<CuteSm100AccumulatorReleaseOp>();
     }
 
     #[test]

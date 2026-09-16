@@ -66,6 +66,7 @@ pub mod mma;
 pub mod numeric;
 pub mod pipeline;
 pub mod scheduler;
+pub mod sm100;
 pub mod tensor;
 pub mod tile;
 pub mod tiled_copy;
@@ -93,6 +94,10 @@ pub use mma::{AccC, FragA, FragB, load_matrix_a, load_matrix_b};
 pub use numeric::{E2M1, Mxf4E2M1, PackedE2M1x2, UE8M0, UE8M0x2, UE8M0x4};
 pub use pipeline::{Consumer, PipelineState, Producer, TmaLoadPipeline, TmaStorePipeline};
 pub use scheduler::{StaticPersistentTileScheduler, WorkTile};
+pub use sm100::{
+    OperandA, OperandB, Sm100AccumulatorPipeline, Sm100ClusterTmaCopy, Sm100SharedTile,
+    Sm100TiledMma, Sm100TmaMmaPipeline, Sm100TmaStorePipeline, Sm100Tmem, Sm100TmemEpilogue,
+};
 pub use tensor::{Contiguous1D, RegisterTile, Tensor, TensorElement, TensorMut, Tile1D, Zipped1D};
 pub use tile::{assume_div, load_tile, store_tile};
 pub use tiled_copy::{GlobalCopyTensor, SharedTensor, TiledCopy};

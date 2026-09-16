@@ -39,6 +39,14 @@ const CUTLASS_EXTERNAL_MODULE_ABI: &str =
 /// operation form emitted by the profile.
 const CUTLASS_PRECOMPILED_PIPELINE: &str = "canonicalize,cute-to-nvvm{check-inline-asm=false cubin-format=bin opt-level=3 use-software-pipeline-pass=true use-fold-static-pass=true use-insert-range-information-pass=true use-loop-invariant-pass=true use-strength-reduction-pass=true use-eliminate-unnecessary-sync-pass=true use-infer-loop-attrs-pass=true enable-cuda-dialect=true cuda-dialect-external-module=true}";
 
+#[cfg(test)]
+#[path = "tests/cutlass/sm100.rs"]
+mod sm100_tests;
+
+#[cfg(test)]
+#[path = "tests/cutlass/tcgen05.rs"]
+mod tcgen05_tests;
+
 /// External input needed to execute the official CUTLASS Backend B.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CutlassBackendConfig {

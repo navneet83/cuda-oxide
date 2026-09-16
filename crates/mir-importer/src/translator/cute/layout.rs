@@ -24,7 +24,11 @@ use rustc_public::mir;
 /// Rust's stable compiler API exposes some constants as raw allocation
 /// bytes. Convert through `u128` and then check the destination width; `as`
 /// would silently turn an invalid large layout constant into a different one.
-fn const_u64(c: &rustc_public::ty::TyConst, what: &str, loc: &Location) -> TranslationResult<u64> {
+pub(super) fn const_u64(
+    c: &rustc_public::ty::TyConst,
+    what: &str,
+    loc: &Location,
+) -> TranslationResult<u64> {
     use rustc_public::ty::TyConstKind;
     let raw = match c.kind() {
         TyConstKind::Value(_, alloc) => match alloc.read_uint() {

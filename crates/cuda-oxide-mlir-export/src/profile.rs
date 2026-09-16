@@ -14,7 +14,8 @@ use thiserror::Error;
 
 use crate::{
     register_builtin_pack, register_cute_cutlass_profile_pack, register_cute_gemm_pack,
-    register_mir_core_pack, register_nvvm_sreg_pack,
+    register_cute_sm100_pack, register_mir_core_pack, register_nvvm_cluster_pack,
+    register_nvvm_sreg_pack, register_nvvm_tcgen05_pack,
 };
 
 /// Everything that makes one textual MLIR contract reproducible.
@@ -123,8 +124,11 @@ impl MlirConsumerProfile for CutlassFullCuteMlir22 {
         register_builtin_pack(&mut registry)?;
         register_mir_core_pack(&mut registry)?;
         register_nvvm_sreg_pack(&mut registry)?;
+        register_nvvm_tcgen05_pack(&mut registry)?;
+        register_nvvm_cluster_pack(&mut registry)?;
         register_cute_cutlass_profile_pack(&mut registry)?;
         register_cute_gemm_pack(&mut registry)?;
+        register_cute_sm100_pack(&mut registry)?;
         registry.seal();
         Ok(registry)
     }

@@ -39,6 +39,7 @@ pub(crate) mod pipeline;
 pub(crate) mod pipeline_emit;
 pub(crate) mod scheduler;
 pub(crate) mod scheduler_emit;
+pub(crate) mod sm100_emit;
 pub(crate) mod smem_mma;
 pub(crate) mod smem_mma_emit;
 pub(crate) mod static_config;
@@ -60,6 +61,7 @@ use rustc_public::ty::FnDef;
 /// Recognized cute-rs entry points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CuteFn {
+    Sm100(sm100_emit::Sm100Fn),
     MakeTensorRead,
     MakeTensorWrite,
     ZippedDivideRead,
@@ -141,6 +143,108 @@ pub(crate) struct CuteFnSpec {
 /// the op set stabilizes this graduates to catalog generation (the
 /// cuda-intrinsics-gen model) and these entries become generated.
 pub(crate) const CUTE_FNS: &[CuteFnSpec] = &[
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_tma_store",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::TmaStore),
+        schema: &[SubstKind::Type],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_store_commit",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::StoreCommit),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_store_acquire",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::StoreAcquire),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_store_tail",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::StoreTail),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_tmem_alloc",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::TmemAlloc),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_tmem_dealloc",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::TmemDealloc),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_tiled_mma",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::TiledMma),
+        schema: &[
+            SubstKind::Type,
+            SubstKind::Type,
+            SubstKind::Type,
+            SubstKind::Const,
+            SubstKind::Const,
+            SubstKind::Const,
+        ],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_tmem_epilogue",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::TmemEpilogue),
+        schema: &[SubstKind::Type],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_cluster_tma_load",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::ClusterTmaLoad),
+        schema: &[SubstKind::Type],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_pipeline_init",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::PipelineInit),
+        schema: &[SubstKind::Const, SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_pipeline_acquire",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::PipelineAcquire),
+        schema: &[SubstKind::Const, SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_pipeline_expect",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::PipelineExpect),
+        schema: &[SubstKind::Const, SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_pipeline_wait",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::PipelineWait),
+        schema: &[SubstKind::Const, SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_pipeline_release",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::PipelineRelease),
+        schema: &[SubstKind::Const, SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_accumulator_init",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::AccumulatorInit),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_accumulator_acquire",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::AccumulatorAcquire),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_accumulator_commit",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::AccumulatorCommit),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_accumulator_wait",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::AccumulatorWait),
+        schema: &[SubstKind::Const],
+    },
+    CuteFnSpec {
+        canonical: "cute_rs::sm100::__compiler::sm100_accumulator_release",
+        func: CuteFn::Sm100(sm100_emit::Sm100Fn::AccumulatorRelease),
+        schema: &[SubstKind::Const],
+    },
     CuteFnSpec {
         canonical: "cute_rs::tensor::make_tensor_read",
         func: CuteFn::MakeTensorRead,
@@ -471,6 +575,7 @@ const CUTE_SOURCE_ABSTRACTION_MODULES: &[&str] = &[
     "numeric",
     "pipeline",
     "scheduler",
+    "sm100",
     "tensor",
     "tiled_copy",
 ];
@@ -551,6 +656,7 @@ mod canonical_path_tests {
                 "numeric",
                 "pipeline",
                 "scheduler",
+                "sm100",
                 "tensor",
                 "tiled_copy",
             ]
@@ -1471,6 +1577,9 @@ pub(crate) fn try_translate_cute_call(
     }
 
     Some(match cute_fn {
+        CuteFn::Sm100(kind) => sm100_emit::emit(
+            ctx, body, func, args, kind, target, block_ptr, prev_op, value_map, block_map, loc.clone(),
+        ),
         CuteFn::MakeTensorRead => tensor_emit::emit_make(
             ctx,
             body,

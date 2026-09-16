@@ -63,8 +63,8 @@ pub fn register_mir_core_pack(registry: &mut TranslationRegistry) -> Result<(), 
     registry.register_operation::<MirBitAndOp>(IntegerBinaryTranslation("arith.andi"))?;
     registry.register_operation::<MirBitOrOp>(IntegerBinaryTranslation("arith.ori"))?;
     registry.register_operation::<MirBitXorOp>(IntegerBinaryTranslation("arith.xori"))?;
-    registry.register_operation::<MirShlOp>(IntegerBinaryTranslation("arith.shli"))?;
-    registry.register_operation::<MirShrOp>(ShiftRightTranslation)?;
+    registry.register_operation::<MirShlOp>(ShiftTranslation { right: false })?;
+    registry.register_operation::<MirShrOp>(ShiftTranslation { right: true })?;
     registry.register_operation::<MirNegOp>(NegTranslation)?;
     registry.register_operation::<MirNotOp>(NotTranslation)?;
 
@@ -136,6 +136,7 @@ impl OperationTranslation for FunctionTranslation {
                         .attributes
                         .insert("gpu.kernel".into(), MlirAttribute::Unit);
                     move_exact_block_contract(&mut target)?;
+                    move_cluster_contract(&mut target)?;
                     flatten_kernel_slice_abi(ctx, source, &mut target, session)?;
                 }
                 other => {
@@ -224,6 +225,25 @@ fn move_exact_block_contract(target: &mut MlirOperation) -> Result<(), String> {
             Ok(())
         }
         _ => Err("kernel reqntid_x/y/z must be present together".into()),
+    }
+}
+
+/// Preserve the compile-time cluster contract for collective two-CTA MMA.
+fn move_cluster_contract(target: &mut MlirOperation) -> Result<(), String> {
+    let dimensions = ["cluster_dim_x", "cluster_dim_y", "cluster_dim_z"]
+        .map(|name| take_positive_i32_attribute(target, name))
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    match dimensions.as_slice() {
+        [None, None, None] => Ok(()),
+        [Some(x), Some(y), Some(z)] => {
+            target.attributes.insert(
+                "nvvm.cluster_dim".into(),
+                MlirAttribute::DenseI32Array(vec![*x, *y, *z]),
+            );
+            Ok(())
+        }
+        _ => Err("kernel cluster_dim_x/y/z must be present together".into()),
     }
 }
 
@@ -531,23 +551,85 @@ impl OperationTranslation for IntegerBinaryTranslation {
     }
 }
 
-struct ShiftRightTranslation;
+struct ShiftTranslation {
+    right: bool,
+}
 
-impl OperationTranslation for ShiftRightTranslation {
+impl OperationTranslation for ShiftTranslation {
     fn translate(
         &self,
         ctx: &Context,
         source: Ptr<Operation>,
-        input: OperationInput,
-        _session: &mut TranslationSession<'_>,
+        mut input: OperationInput,
+        session: &mut TranslationSession<'_>,
     ) -> Result<Vec<MlirOperation>, String> {
         let integer = source_integer(ctx, source, 0)?;
-        let name = if integer.signedness() == Signedness::Signed {
+        let name = if !self.right {
+            "arith.shli"
+        } else if integer.signedness() == Signedness::Signed {
             "arith.shrsi"
         } else {
             "arith.shrui"
         };
-        Ok(vec![renamed(name, input)?])
+        let width = integer.width();
+        let count = source_integer(ctx, source, 1)?;
+        let count_width = count.width();
+        if !width.is_power_of_two() || width > 128 {
+            return Err(format!(
+                "Rust shift requires a power-of-two integer width up to 128, got {width}"
+            ));
+        }
+        // Rust permits a differently typed RHS, and release/wrapping shifts
+        // mask it by width-1. MLIR/LLVM require equal types and otherwise
+        // produce poison for oversized counts. Match the native MIR lowering.
+        let ty = MlirType::Integer(width);
+        let mut operations = vec![];
+        if width != count_width {
+            let id = session.fresh_value();
+            let mut cast = MlirOperation::new(if width > count_width {
+                "arith.extui"
+            } else {
+                "arith.trunci"
+            })?;
+            cast.operands.push(input.operands[1].clone());
+            cast.results.push(MlirResult { id, ty: ty.clone() });
+            cast.location = input.location.clone();
+            operations.push(cast);
+            input.operands[1] = MlirValueUse { id, ty: ty.clone() };
+        }
+        let mask_id = session.fresh_value();
+        let mut mask = MlirOperation::new("arith.constant")?;
+        mask.results.push(MlirResult {
+            id: mask_id,
+            ty: ty.clone(),
+        });
+        mask.properties.insert(
+            "value".into(),
+            MlirAttribute::Integer {
+                value: i128::from(width - 1),
+                ty: ty.clone(),
+            },
+        );
+        mask.location = input.location.clone();
+        operations.push(mask);
+        let count_id = session.fresh_value();
+        let mut masked = MlirOperation::new("arith.andi")?;
+        masked.operands = vec![
+            input.operands[1].clone(),
+            MlirValueUse {
+                id: mask_id,
+                ty: ty.clone(),
+            },
+        ];
+        masked.results.push(MlirResult {
+            id: count_id,
+            ty: ty.clone(),
+        });
+        masked.location = input.location.clone();
+        operations.push(masked);
+        input.operands[1] = MlirValueUse { id: count_id, ty };
+        operations.push(renamed(name, input)?);
+        Ok(operations)
     }
 }
 
@@ -934,6 +1016,36 @@ fn move_property(
 mod tests {
     use std::num::NonZero;
 
+    #[test]
+    fn cluster_contract_rejects_partial_and_nonpositive_dimensions() {
+        use pliron_mlir_export::{MlirAttribute, MlirOperation, MlirType};
+        let mut kernel = MlirOperation::new("func.func").unwrap();
+        kernel.attributes.insert(
+            "cluster_dim_x".into(),
+            MlirAttribute::Integer {
+                value: 2,
+                ty: MlirType::Integer(32),
+            },
+        );
+        assert!(
+            super::move_cluster_contract(&mut kernel)
+                .unwrap_err()
+                .contains("present together")
+        );
+        kernel.attributes.insert(
+            "cluster_dim_x".into(),
+            MlirAttribute::Integer {
+                value: 0,
+                ty: MlirType::Integer(32),
+            },
+        );
+        assert!(
+            super::move_cluster_contract(&mut kernel)
+                .unwrap_err()
+                .contains("positive")
+        );
+    }
+
     use crate::{
         CutlassFullCuteMlir22, MlirConsumerProfile,
         profile::render_mapping_module_without_cutlass_envelope,
@@ -1017,6 +1129,64 @@ mod tests {
 
     fn integer(ctx: &mut Context, width: u32, signedness: Signedness) -> TypedHandle<IntegerType> {
         IntegerType::get(ctx, width, signedness)
+    }
+
+    #[test]
+    fn shifts_cast_and_mask_counts_before_emitting_equal_width_operands() {
+        use dialect_mir::ops::{MirShlOp, MirShrOp};
+        for (width, count_width, signed, right, name, cast) in [
+            (64, 32, false, true, "arith.shrui", Some("arith.extui")),
+            (16, 32, false, false, "arith.shli", Some("arith.trunci")),
+            (32, 64, true, true, "arith.shrsi", Some("arith.trunci")),
+            (32, 32, false, false, "arith.shli", None),
+        ] {
+            let mut ctx = context();
+            let module = ModuleOp::new(&mut ctx, Identifier::try_from("shift").unwrap());
+            let lhs = integer(
+                &mut ctx,
+                width,
+                if signed {
+                    Signedness::Signed
+                } else {
+                    Signedness::Unsigned
+                },
+            );
+            let rhs = integer(&mut ctx, count_width, Signedness::Unsigned);
+            let (_, region) = append_function(
+                &mut ctx,
+                &module,
+                "shift",
+                vec![lhs.into(), rhs.into()],
+                vec![lhs.into()],
+            );
+            let entry = BasicBlock::new(&mut ctx, None, vec![lhs.into(), rhs.into()]);
+            entry.insert_at_back(region, &ctx);
+            let args = entry.deref(&ctx).arguments().collect();
+            let shift = if right {
+                operation::<MirShrOp>(&mut ctx, entry, vec![lhs.into()], args)
+            } else {
+                operation::<MirShlOp>(&mut ctx, entry, vec![lhs.into()], args)
+            };
+            let result = shift.deref(&ctx).get_result(0);
+            operation::<MirReturnOp>(&mut ctx, entry, vec![], vec![result]);
+            let text = translate(&mut ctx, &module);
+            let shift_line = text
+                .lines()
+                .find(|line| line.contains(&format!("\"{name}\"")))
+                .unwrap();
+            assert!(
+                shift_line.contains(&format!(": (i{width}, i{width}) -> i{width}")),
+                "{text}"
+            );
+            assert!(
+                text.contains(&format!("value = {} : i{width}", width - 1)),
+                "{text}"
+            );
+            assert!(text.contains("\"arith.andi\""), "{text}");
+            if let Some(cast) = cast {
+                assert!(text.contains(&format!("\"{cast}\"")), "{text}");
+            }
+        }
     }
 
     #[test]

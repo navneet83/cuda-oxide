@@ -42,6 +42,14 @@ artifact loader. Set `CUDA_OXIDE_MLIR_OUTPUT=<file>` to retain the exact textual
 module for inspection; select `CUDA_OXIDE_DEVICE_BACKEND=cutlass-mlir` to compile
 it.
 
+The SM100 primitive pack additionally maps two-CTA FP16 TCGen05 MMA with A
+collector selectors, tensor-memory allocation/load/commit/wait operations,
+cluster synchronization, elected-lane results and multicast TMA. The
+[`fp16_gemm_256x352_cute`](../../cuteir/examples/fp16_gemm_256x352_cute)
+example exercises these together. It also preserves fixed cluster dimensions
+in `nvvm.cluster_dim` and the scalar order of compiler-created register arrays.
+Unsupported primitive selectors and intrinsic identities fail at export.
+
 ## The first mapping pack
 
 The first pack covers the ordinary scalar code around a CuTe kernel:
