@@ -24,6 +24,7 @@
         "./cuteir/examples/elementwise_cute/Cargo.toml",
         "./cuteir/examples/blockscale_gemm_cute/Cargo.toml",
         "./cuteir/examples/nvfp4_gemv_cute/Cargo.toml",
+        "./cuteir/examples/fp16_gemm_256x352_cute/Cargo.toml",
         "./crates/rustc-codegen-cuda/examples/ptr_offset_from/Cargo.toml",
         "./crates/rustc-codegen-cuda/examples/gemm_sol_final/Cargo.toml",
     ],
